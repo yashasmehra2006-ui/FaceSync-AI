@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FaceSync AI - Panel A Attendance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white flex flex-col items-center justify-center min-h-screen p-6">
+    
+    <div class="text-center mb-6">
+        <h1 class="text-3xl font-bold tracking-wide">FaceSync AI Web Portal</h1>
+        <p class="text-slate-400 text-sm">CSE Panel-A Timetable-Aware Attendance System</p>
+    </div>
+
+    <div class="flex flex-wrap gap-6 bg-slate-800 p-6 rounded-xl shadow-2xl border border-slate-700 justify-center">
+        
+        <!-- Video Stream Section -->
+        <div class="flex flex-col items-center">
+            <h2 class="text-lg font-semibold mb-2 text-emerald-400">Live Recognition Stream</h2>
+            <video id="webcam" autoplay playsinline class="hidden"></video>
+            <img id="videoOutput" class="rounded-lg border border-slate-600 w-[640px] h-[480px] bg-black object-cover" alt="Connecting to stream...">
+        </div>
+
+        <!-- Right Panel: Registration & Attendance Logs -->
+        <div class="flex flex-col gap-6 w-[380px]">
+            
+            <!-- Student Registration Section -->
+            <div class="flex flex-col bg-slate-900 p-5 rounded-lg border border-slate-700">
+                <h2 class="text-lg font-semibold mb-3 text-cyan-400">Register Student</h2>
+                <form id="regForm" class="flex flex-col gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400">PRN / ID</label>
+                        <input type="text" id="prn" required class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400">Full Name</label>
+                        <input type="text" id="name" required class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400">Department</label>
+                        <input type="text" id="department" required class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <button type="submit" id="regBtn" class="mt-1 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 rounded transition text-sm">
+                        Burst Capture & Register
+                    </button>
+                </form>
+                <div id="regStatus" class="text-xs text-center mt-3 text-slate-400"></div>
+            </div>
+
+            <!-- Live Attendance Log Feed -->
+            <div class="flex flex-col bg-slate-900 p-5 rounded-lg border border-slate-700 h-[260px] justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                            <span>Panel-A Attendance Log</span>
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        </h2>
+                        <a href="/api/export/csv" class="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 px-2 py-1 rounded transition">
+                            Export CSV
+                        </a>
+                    </div>
+                    <div class="overflow-y-auto h-[145px] pr-1">
+                        <table class="w-full text-left text-xs">
+                            <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
+                                <tr>
+                                    <th class="pb-1 font-medium">Name</th>
+                                    <th class="pb-1 font-medium">Subject</th>
+                                    <th class="pb-1 font-medium text-right">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTableBody" class="divide-y divide-slate-800 text-slate-300">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const video = document.getElementById("webcam");
+        const videoOutput = document.getElementById("videoOutput");
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        const ctx = canvas.getContext("2d");
+
+        navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+            .then(stream => {
+                video.srcObject = stream;
+                connectWebSocket();
+            })
+            .catch(err => {
+                alert("Webcam access denied or unavailable: " + err);
+            });
+
+        function connectWebSocket() {
+            const ws = new WebSocket('ws://' + window.location.host + '/ws/video');
+            
+            ws.onopen = () => {
+                setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        const frameData = canvas.toDataURL("image/jpeg", 0.6);
+                        ws.send(frameData);
+                    }
+                }, 150);
+            };
+            ws.onmessage = (event) => {
+                videoOutput.src = event.data;
+            };
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        // Multi-Sample Burst Capture Registration
+        document.getElementById("regForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const statusDiv = document.getElementById("regStatus");
+            const regBtn = document.getElementById("regBtn");
+            regBtn.disabled = true;
+
+            const images = [];
+            const totalFrames = 3;
+
+            for (let i = 1; i <= totalFrames; i++) {
+                statusDiv.textContent = `Capturing burst frame ${i}/${totalFrames}...`;
+                statusDiv.className = "text-xs text-center mt-3 text-yellow-400";
+                
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                images.push(canvas.toDataURL("image/jpeg", 0.9));
+                
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+
+            statusDiv.textContent = "Processing & averaging AI face vectors...";
+
+            const payload = {
+                prn: document.getElementById("prn").value,
+                name: document.getElementById("name").value,
+                department: document.getElementById("department").value,
+                images: images
+            };
+
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                statusDiv.textContent = result.message;
+                statusDiv.className = result.success ? "text-xs text-center mt-3 text-emerald-400" : "text-xs text-center mt-3 text-rose-400";
+            } catch (err) {
+                statusDiv.textContent = "Registration failed: " + err;
+                statusDiv.className = "text-xs text-center mt-3 text-rose-400";
+            } finally {
+                regBtn.disabled = false;
+            }
+        });
+
+        // Poll Attendance Logs every 2 seconds
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                const logs = await res.json();
+                const tbody = document.getElementById("logTableBody");
+                tbody.innerHTML = "";
+                if (logs.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="3" class="text-center py-3 text-slate-500">No attendance logged yet</td></tr>`;
+                    return;
+                }
+                logs.forEach(log => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td class="py-1.5 font-medium truncate max-w-[110px]">${log.name}</td>
+                        <td class="py-1.5 text-cyan-400 truncate max-w-[110px]">${log.subject}</td>
+                        <td class="py-1.5 text-right text-emerald-400 font-mono">${log.timestamp}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Failed to fetch logs:", err);
+            }
+        }
+
+        setInterval(fetchLogs, 2000);
+        fetchLogs();
+    </script>
+</body>
+</html>
